@@ -31,11 +31,13 @@ parser.add_argument('--num_beams', type=int, default='5')
 parser.add_argument('--decoding_method', type=str, default='beam_search')
 parser.add_argument('--top_p', type=float, default=1.0)
 parser.add_argument('--device', type=str, default="cuda:2")
+parser.add_argument('--encoder_device', type=str, default="cuda:3")
 args = parser.parse_args()
 
 print("INFO: ------setting device------")
 
 device = args.device
+encoder_device = args.encoder_device
 '''if torch.cuda.is_available():
     device = 'cuda' #adjust to gpu number
 elif torch.device('mps') != None:
@@ -73,8 +75,8 @@ torch.manual_seed(seed_value)
 os.environ["HF_DATASETS_CACHE"] = config.hf_datasets_cache
 
 encoder_tokenizer = AutoTokenizer.from_pretrained("microsoft/deberta-large-mnli")
-encoder_model = AutoModelForSequenceClassification.from_pretrained("microsoft/deberta-large-mnli").to(device)
-'''print("INFO: ------loading data------")
+encoder_model = AutoModelForSequenceClassification.from_pretrained("microsoft/deberta-large-mnli").to(encoder_device)
+print("INFO: ------loading data------")
 
 with open(f'{config.data_dir}/coqa-dev-v1.0.json', 'r') as infile:
     data = json.load(infile)['data']
@@ -166,7 +168,7 @@ dataset = Dataset.from_pandas(dataset_df)
 dataset.save_to_disk(f'{config.data_dir}/coqa_dataset')
 
 print("INFO: ------saved data to disk------")
-'''
+
 
 print("INFO: ------loading model------")
 
