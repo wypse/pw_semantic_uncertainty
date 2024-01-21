@@ -320,6 +320,7 @@ def get_generations(model, dataloader, number_of_generations):
                                                                        sequence_dict[rouge_type + '_to_target'])
 
                 sequences.append(sequence_dict)
+            del generations
 
     return sequences
 
