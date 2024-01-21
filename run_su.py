@@ -180,8 +180,7 @@ os.environ["HF_DATASETS_CACHE"] = config.hf_datasets_cache
 
 model = AutoModelForCausalLM.from_pretrained(f"facebook/{args.model}",
                                              torch_dtype=dtype,
-                                             cache_dir=config.hf_cache_dir)
-model = nn.DataParallel(model, device_ids=[2,3]).to(device)
+                                             cache_dir=config.hf_cache_dir).to(device)
 
 tokenizer = AutoTokenizer.from_pretrained(f"facebook/{args.model}", use_fast=False, cache_dir=config.hf_cache_dir)
 
