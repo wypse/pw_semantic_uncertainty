@@ -51,7 +51,8 @@ if device == 'mps' or device == 'cpu':
     dtype = torch.float32
 
 wandb.login()
-wandb.init(project='nlg_uncertainty', id=args.run_id, config=args, resume='allow')
+run_id = wandb.util.generate_id()
+wandb.init(project='nlg_uncertainty', id=run_id, config=args, resume='allow')
 
 run_name = wandb.run.name
 
@@ -87,87 +88,89 @@ rouge = evaluate.load('rouge')
 
 dataset = {}
 
-if args.fraction_of_data_to_use < 1.0:
-    data = data[:int(len(data) * args.fraction_of_data_to_use)]
+if not os.path.exists(f'{config.data_dir}/coqa_dataset'):
+
+    if args.fraction_of_data_to_use < 1.0:
+        data = data[:int(len(data) * args.fraction_of_data_to_use)]
 
 
-dataset['story'] = []
-dataset['question'] = []
-dataset['answer'] = []
-dataset['additional_answers'] = []
-dataset['rouge1'] = []
-dataset['rouge2'] = []
-dataset['rougeL'] = []
-dataset['semantic_variability'] = []
-dataset['id'] = []
+    dataset['story'] = []
+    dataset['question'] = []
+    dataset['answer'] = []
+    dataset['additional_answers'] = []
+    dataset['rouge1'] = []
+    dataset['rouge2'] = []
+    dataset['rougeL'] = []
+    dataset['semantic_variability'] = []
+    dataset['id'] = []
 
-for sample_id, sample in enumerate(tqdm(data, desc='Encoding data')):
-    story = sample['story']
-    questions = sample['questions']
-    answers = sample['answers']
-    additional_answers = sample['additional_answers']
-    for question_index, question in enumerate(questions):
-        dataset['story'].append(story)
-        dataset['question'].append(question['input_text'])
-        dataset['answer'].append({
-            'text': answers[question_index]['input_text'],
-            'answer_start': answers[question_index]['span_start'] # where answer starts in story
-        })
-        dataset['id'].append(sample['id'] + '_' + str(question_index))
-        additional_answers_list = []
+    for sample_id, sample in enumerate(tqdm(data, desc='Encoding data')):
+        story = sample['story']
+        questions = sample['questions']
+        answers = sample['answers']
+        additional_answers = sample['additional_answers']
+        for question_index, question in enumerate(questions):
+            dataset['story'].append(story)
+            dataset['question'].append(question['input_text'])
+            dataset['answer'].append({
+                'text': answers[question_index]['input_text'],
+                'answer_start': answers[question_index]['span_start'] # where answer starts in story
+            })
+            dataset['id'].append(sample['id'] + '_' + str(question_index))
+            additional_answers_list = []
 
-        for i in range(3):
-            additional_answers_list.append(additional_answers[str(i)][question_index]['input_text'])
+            for i in range(3):
+                additional_answers_list.append(additional_answers[str(i)][question_index]['input_text'])
 
-        dataset['additional_answers'].append(additional_answers_list)
-        story = story + ' Q: ' + question['input_text'] + ' A: ' + answers[question_index]['input_text']
-        if not story[-1] == '.':
-            story = story + '.'
-        all_answers = [answers[question_index]['input_text']] + additional_answers_list
+            dataset['additional_answers'].append(additional_answers_list)
+            story = story + ' Q: ' + question['input_text'] + ' A: ' + answers[question_index]['input_text']
+            if not story[-1] == '.':
+                story = story + '.'
+            all_answers = [answers[question_index]['input_text']] + additional_answers_list
 
-        answer_list_1 = []
-        answer_list_2 = []
-        has_semantically_different_answers = False
-        inputs = []
+            answer_list_1 = []
+            answer_list_2 = []
+            has_semantically_different_answers = False
+            inputs = []
 
-        # This computes the syntactic similarity across the reference answers
-        for i, reference_answer in enumerate(all_answers):
-            for j in range(4):
-                if i != j:
-                    answer_list_1.append(all_answers[i])
-                    answer_list_2.append(all_answers[j])
+            # This computes the syntactic similarity across the reference answers
+            for i, reference_answer in enumerate(all_answers):
+                for j in range(4):
+                    if i != j:
+                        answer_list_1.append(all_answers[i])
+                        answer_list_2.append(all_answers[j])
 
-                    qa_1 = question['input_text'] + ' ' + all_answers[i]
-                    qa_2 = question['input_text'] + ' ' + all_answers[j]
+                        qa_1 = question['input_text'] + ' ' + all_answers[i]
+                        qa_2 = question['input_text'] + ' ' + all_answers[j]
 
-                    input = qa_1 + ' [SEP] ' + qa_2
+                        input = qa_1 + ' [SEP] ' + qa_2
 
-                    inputs.append(input)
-                    #print(encoded_input)
+                        inputs.append(input)
+                        #print(encoded_input)
 
-        encoded_input = encoder_tokenizer.batch_encode_plus(inputs, padding=True)
+            encoded_input = encoder_tokenizer.batch_encode_plus(inputs, padding=True)
 
-        prediction = encoder_model(torch.tensor(encoded_input['input_ids'], device=device))['logits']
+            prediction = encoder_model(torch.tensor(encoded_input['input_ids'], device=encoder_device))['logits']
 
-        predicted_label = torch.argmax(prediction, dim=1)
-        if 0 in predicted_label:
-            has_semantically_different_answers = True
+            predicted_label = torch.argmax(prediction, dim=1)
+            if 0 in predicted_label:
+                has_semantically_different_answers = True
 
-        dataset['semantic_variability'].append(has_semantically_different_answers)
+            dataset['semantic_variability'].append(has_semantically_different_answers)
 
-        results = rouge.compute(predictions=answer_list_1, references=answer_list_2)
-        #print(results)
-        dataset['rouge1'].append(results['rouge1']) # changed to value only
-        dataset['rouge2'].append(results['rouge2'])
-        dataset['rougeL'].append(results['rougeL'])
+            results = rouge.compute(predictions=answer_list_1, references=answer_list_2)
+            #print(results)
+            dataset['rouge1'].append(results['rouge1']) # changed to value only
+            dataset['rouge2'].append(results['rouge2'])
+            dataset['rougeL'].append(results['rougeL'])
 
-dataset_df = pd.DataFrame.from_dict(dataset)
+    dataset_df = pd.DataFrame.from_dict(dataset)
 
-dataset = Dataset.from_pandas(dataset_df)
+    dataset = Dataset.from_pandas(dataset_df)
 
-dataset.save_to_disk(f'{config.data_dir}/coqa_dataset')
+    dataset.save_to_disk(f'{config.data_dir}/coqa_dataset')
 
-print("INFO: ------saved data to disk------")
+    print("INFO: ------saved data to disk------")
 
 
 print("INFO: ------loading model------")
@@ -442,12 +445,12 @@ else:
                     input = qa_1 + ' [SEP] ' + qa_2
                     inputs.append(input)
                     encoded_input = encoder_tokenizer.encode(input, padding=True)
-                    prediction = model(torch.tensor(torch.tensor([encoded_input]), device=device))['logits']
+                    prediction = encoder_model(torch.tensor(torch.tensor([encoded_input]), device=encoder_device))['logits']
                     predicted_label = torch.argmax(prediction, dim=1)
 
                     reverse_input = qa_2 + ' [SEP] ' + qa_1
                     encoded_reverse_input = encoder_tokenizer.encode(reverse_input, padding=True)
-                    reverse_prediction = encoder_model(torch.tensor(torch.tensor([encoded_reverse_input]), device=device))['logits']
+                    reverse_prediction = encoder_model(torch.tensor(torch.tensor([encoded_reverse_input]), device=encoder_device))['logits']
                     reverse_predicted_label = torch.argmax(reverse_prediction, dim=1)
 
                     deberta_prediction = 1
