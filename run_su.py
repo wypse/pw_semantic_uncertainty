@@ -278,7 +278,7 @@ def get_generations(model, dataloader, number_of_generations, sequences = [], te
                             tokenizer.decode(generation[len(batch['input_ids'][i]):], skip_special_tokens=True))
 
                     sequence_dict['generated_texts'] = generated_texts
-                    wandb.log({'generated_texts': generated_texts})
+                    wandb.log({'generated_texts': str(generated_texts)})
                     sequence_dict['most_likely_generation_ids'] = most_likely_generation[0].to('cpu')
                     sequence_dict['most_likely_generation'] = tokenizer.decode(
                         most_likely_generation[0][len(batch['input_ids'][i]):], skip_special_tokens=True)
