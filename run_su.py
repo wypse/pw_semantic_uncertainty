@@ -207,9 +207,7 @@ def encode_and_format_dataset(dataset):
 
 
 
-questions = encode_and_format_dataset(train_dataset)
 
-dataloader = torch.utils.data.DataLoader(questions, batch_size=1)
 
 period_token_id = tokenizer('. ')['input_ids'][1]
 eos_tokens = ['Question:', ' Question:', '\n', 'Answer:', ' Answer:', 'Q:']
@@ -219,109 +217,118 @@ rouge = evaluate.load('rouge')
 exact_match_metric = evaluate.load("exact_match")
 
 
-def get_generations(model, dataloader, number_of_generations):
+def get_generations(model, dataloader, number_of_generations, sequences = [], temp_generations_path = f'{config.output_dir}/sequences/temp/generations.pkl'):
     """For a given model, produce a number of generation """
 
     with torch.no_grad():
-        max_length_of_generated_sequence = 256
-        sequences = []
-        for batch in tqdm(dataloader, desc='Generating sequences'):
+        max_length_of_generated_sequence = 128
+        try:
+            for batch in tqdm(dataloader, desc='Generating sequences'):
 
-            input_ids = batch['input_ids'].to(device)
-            if args.decoding_method == 'beam_search':
-                most_likely_generation = model.generate(input_ids,
-                                                        num_beams=5,
-                                                        num_return_sequences=2,
-                                                        do_sample=False,
-                                                        max_length=input_ids.shape[1] +
-                                                        max_length_of_generated_sequence,
-                                                        eos_token_id=period_token_id,
-                                                        bad_words_ids=question_framing_ids)
-            elif args.decoding_method == 'greedy':
-                most_likely_generation = model.generate(input_ids,
-                                                        num_beams=1,
-                                                        do_sample=False,
-                                                        max_length=input_ids.shape[1] +
-                                                        max_length_of_generated_sequence,
-                                                        eos_token_id=period_token_id,
-                                                        bad_words_ids=question_framing_ids)
+                input_ids = batch['input_ids'].to(device)
+                if args.decoding_method == 'beam_search':
+                    most_likely_generation = model.generate(input_ids,
+                                                            num_beams=5,
+                                                            num_return_sequences=2,
+                                                            do_sample=False,
+                                                            max_length=input_ids.shape[1] +
+                                                            max_length_of_generated_sequence,
+                                                            eos_token_id=period_token_id,
+                                                            bad_words_ids=question_framing_ids)
+                elif args.decoding_method == 'greedy':
+                    most_likely_generation = model.generate(input_ids,
+                                                            num_beams=1,
+                                                            do_sample=False,
+                                                            max_length=input_ids.shape[1] +
+                                                            max_length_of_generated_sequence,
+                                                            eos_token_id=period_token_id,
+                                                            bad_words_ids=question_framing_ids)
 
-            input_length = batch['input_ids'].shape[1]
-            generations = torch.ones((number_of_generations, input_length + max_length_of_generated_sequence),
-                                     dtype=torch.long,
-                                     device=device)
-            for i in range(number_of_generations):
+                input_length = batch['input_ids'].shape[1]
+                generations = torch.ones((number_of_generations, input_length + max_length_of_generated_sequence),
+                                        dtype=torch.long,
+                                        device=device)
+                for i in range(number_of_generations):
 
-                generation = model.generate(input_ids,
-                                            do_sample=True,
-                                            num_return_sequences=1,
-                                            num_beams=args.num_beams,
-                                            max_length=input_ids.shape[1] + max_length_of_generated_sequence,
-                                            eos_token_id=period_token_id,
-                                            temperature=args.temperature,
-                                            bad_words_ids=question_framing_ids,
-                                            top_p=args.top_p)
-                generations[i, :generation.shape[1]] = generation
+                    generation = model.generate(input_ids,
+                                                do_sample=True,
+                                                num_return_sequences=1,
+                                                num_beams=args.num_beams,
+                                                max_length=input_ids.shape[1] + max_length_of_generated_sequence,
+                                                eos_token_id=period_token_id,
+                                                temperature=args.temperature,
+                                                bad_words_ids=question_framing_ids,
+                                                top_p=args.top_p)
+                    generations[i, :generation.shape[1]] = generation
 
-            generations = torch.reshape(generations, (-1, number_of_generations, generations.shape[-1]))
-            for i in range(generations.shape[0]):
-                sequence_dict = {
-                    'prompt': batch['input_ids'][i].to('cpu'),
-                    'generations': generations[i].to('cpu'),
-                    'id': batch['id'],
-                    'question': id_to_question_mapping[batch['id'][0]]
-                }
+                generations = torch.reshape(generations, (-1, number_of_generations, generations.shape[-1]))
+                for i in range(generations.shape[0]):
+                    sequence_dict = {
+                        'prompt': batch['input_ids'][i].to('cpu'),
+                        'generations': generations[i].to('cpu'),
+                        'id': batch['id'],
+                        'question': id_to_question_mapping[batch['id'][0]]
+                    }
 
 
-                # Decode the generations
-                generated_texts = []
-                for generation in generations[i]:
-                    generated_texts.append(
-                        tokenizer.decode(generation[len(batch['input_ids'][i]):], skip_special_tokens=True))
+                    # Decode the generations
+                    generated_texts = []
+                    for generation in generations[i]:
+                        generated_texts.append(
+                            tokenizer.decode(generation[len(batch['input_ids'][i]):], skip_special_tokens=True))
 
-                sequence_dict['generated_texts'] = generated_texts
-                sequence_dict['most_likely_generation_ids'] = most_likely_generation[0].to('cpu')
-                sequence_dict['most_likely_generation'] = tokenizer.decode(
-                    most_likely_generation[0][len(batch['input_ids'][i]):], skip_special_tokens=True)
+                    sequence_dict['generated_texts'] = generated_texts
+                    wandb.log({'generated_texts': generated_texts})
+                    sequence_dict['most_likely_generation_ids'] = most_likely_generation[0].to('cpu')
+                    sequence_dict['most_likely_generation'] = tokenizer.decode(
+                        most_likely_generation[0][len(batch['input_ids'][i]):], skip_special_tokens=True)
 
-                sequence_dict['second_most_likely_generation_ids'] = most_likely_generation[1].to('cpu')
-                sequence_dict['second_most_likely_generation'] = tokenizer.decode(
-                    most_likely_generation[1][len(batch['input_ids'][i]):], skip_special_tokens=True)
+                    sequence_dict['second_most_likely_generation_ids'] = most_likely_generation[1].to('cpu')
+                    sequence_dict['second_most_likely_generation'] = tokenizer.decode(
+                        most_likely_generation[1][len(batch['input_ids'][i]):], skip_special_tokens=True)
 
-                sequence_dict['semantic_variability_reference_answers'] = batch[
-                    'semantic_variability'] if 'semantic_variability' in batch else None
-                rouge_types = ['rouge1', 'rouge2', 'rougeL']
-                for rouge_type in rouge_types:
-                    if rouge_type in batch:
-                        sequence_dict[rouge_type + '_reference_answers'] = batch[rouge_type]
-
-                    else:
-                        sequence_dict[rouge_type + '_reference_answers'] = None
-
-                    sequence_dict[rouge_type + '_to_target'] = 0.0
-
-                sequence_dict['answer'] = batch['answer']['text']
-                sequence_dict['additional_answers'] = [x[0] for x in batch['additional_answers']]
-
-                sequence_dict['exact_match'] = 0.0
-
-                reference_answers = batch['answer']['text'] + [x[0] for x in batch['additional_answers']]
-                # evaluating with exact match and rouge against the reference answers from dataset
-                for answer in reference_answers:
-                    predictions = [sequence_dict['most_likely_generation'].lstrip()]
-                    references = [answer]
-                    results = exact_match_metric.compute(predictions=predictions,
-                                                         references=references,
-                                                         ignore_case=True,
-                                                         ignore_punctuation=True)
-                    sequence_dict['exact_match'] = max(results['exact_match'], sequence_dict['exact_match'])
-                    rouge_results = rouge.compute(predictions=predictions, references=references)
+                    sequence_dict['semantic_variability_reference_answers'] = batch[
+                        'semantic_variability'] if 'semantic_variability' in batch else None
+                    rouge_types = ['rouge1', 'rouge2', 'rougeL']
                     for rouge_type in rouge_types:
-                        sequence_dict[rouge_type + '_to_target'] = max(rouge_results[rouge_type],
-                                                                       sequence_dict[rouge_type + '_to_target'])
+                        if rouge_type in batch:
+                            sequence_dict[rouge_type + '_reference_answers'] = batch[rouge_type]
 
-                sequences.append(sequence_dict)
-            del generations
+                        else:
+                            sequence_dict[rouge_type + '_reference_answers'] = None
+
+                        sequence_dict[rouge_type + '_to_target'] = 0.0
+
+                    sequence_dict['answer'] = batch['answer']['text']
+                    sequence_dict['additional_answers'] = [x[0] for x in batch['additional_answers']]
+
+                    sequence_dict['exact_match'] = 0.0
+
+                    reference_answers = batch['answer']['text'] + [x[0] for x in batch['additional_answers']]
+                    # evaluating with exact match and rouge against the reference answers from dataset
+                    for answer in reference_answers:
+                        predictions = [sequence_dict['most_likely_generation'].lstrip()]
+                        references = [answer]
+                        results = exact_match_metric.compute(predictions=predictions,
+                                                            references=references,
+                                                            ignore_case=True,
+                                                            ignore_punctuation=True)
+                        sequence_dict['exact_match'] = max(results['exact_match'], sequence_dict['exact_match'])
+                        rouge_results = rouge.compute(predictions=predictions, references=references)
+                        for rouge_type in rouge_types:
+                            sequence_dict[rouge_type + '_to_target'] = max(rouge_results[rouge_type],
+                                                                        sequence_dict[rouge_type + '_to_target'])
+
+                    sequences.append(sequence_dict)
+                del generations
+        except:
+            if os.path.exists(temp_generations_path):
+                os.remove(temp_generations_path)
+            else:
+                pathlib.Path(f'{config.output_dir}/sequences/temp/').mkdir(parents=True, exist_ok=True)
+
+            with open(temp_generations_path) as outfile:
+                    pickle.dump(sequences, outfile)
 
     return sequences
 
@@ -334,7 +341,19 @@ if os.path.exists(f'{config.output_dir}/sequences/' + run_name):
         sequences = pickle.load(infile)
 else:
     print("INFO: ------generating sequences------")
-    sequences = get_generations(model, dataloader, args.num_generations_per_prompt)
+    temp_generations_path = f'{config.output_dir}/sequences/temp/generations.pkl'
+    if os.path.exists(temp_generations_path):
+        sequences = []
+        with open(temp_generations_path, 'rb') as infile:
+            sequences = pickle.load(infile)
+        last_index = len(sequences)
+        questions = encode_and_format_dataset(train_dataset[last_index:])
+        dataloader = torch.utils.data.DataLoader(questions, batch_size=1)
+        sequences = get_generations(model, dataloader, args.num_generations_per_prompt, sequences, temp_generations_path)
+    else:
+        questions = encode_and_format_dataset(train_dataset)
+        dataloader = torch.utils.data.DataLoader(questions, batch_size=1)
+        sequences = get_generations(model, dataloader, args.num_generations_per_prompt)
     pathlib.Path(f'{config.output_dir}/sequences/' + run_name).mkdir(parents=True, exist_ok=True)
     with open(f'{config.output_dir}/sequences/{run_name}/{args.model}_generations.pkl', 'wb') as outfile:
         pickle.dump(sequences, outfile)
