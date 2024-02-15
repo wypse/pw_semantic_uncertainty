@@ -327,7 +327,7 @@ def get_generations(model, dataloader, number_of_generations, sequences = [], te
             else:
                 pathlib.Path(f'{config.output_dir}/sequences/temp/').mkdir(parents=True, exist_ok=True)
 
-            with open(temp_generations_path) as outfile:
+            with open(temp_generations_path, 'wb') as outfile:
                     pickle.dump(sequences, outfile)
 
     return sequences
