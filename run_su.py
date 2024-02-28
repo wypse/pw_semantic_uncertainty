@@ -47,7 +47,7 @@ elif torch.device('mps') != None:
 else:
     device = 'cpu'''
 
-dtype = torch.bfloat16
+dtype = torch.float16
 
 if device == 'mps' or device == 'cpu':
     dtype = torch.bfloat16
@@ -181,7 +181,7 @@ os.environ["HF_DATASETS_CACHE"] = config.hf_datasets_cache
 
 model = AutoModelForCausalLM.from_pretrained(f"facebook/{args.model}",
                                              torch_dtype=dtype,
-                                             cache_dir=config.hf_cache_dir).to(device)
+                                             cache_dir=config.hf_cache_dir).cuda()
 
 accelerate.dispatch_model(model, device_map=config.device_map)
 
