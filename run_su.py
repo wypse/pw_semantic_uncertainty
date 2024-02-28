@@ -46,10 +46,10 @@ elif torch.device('mps') != None:
 else:
     device = 'cpu'''
 
-dtype = torch.float16
+dtype = torch.bfloat16
 
 if device == 'mps' or device == 'cpu':
-    dtype = torch.float32
+    dtype = torch.bfloat16
 
 wandb.login()
 run_id = wandb.util.generate_id()
@@ -206,9 +206,6 @@ def encode_and_format_dataset(dataset):
     return dataset
 
 
-
-
-
 period_token_id = tokenizer('. ')['input_ids'][1]
 eos_tokens = ['Question:', ' Question:', '\n', 'Answer:', ' Answer:', 'Q:']
 question_framing_ids = [[tokenizer(eos_token)['input_ids'][1]] for eos_token in eos_tokens]
@@ -276,6 +273,9 @@ def get_generations(model, dataloader, number_of_generations, sequences = [], te
                     for generation in generations[i]:
                         generated_texts.append(
                             tokenizer.decode(generation[len(batch['input_ids'][i]):], skip_special_tokens=True))
+                        
+                    # TODO: cannot directly send list to cpu, check everything in sequence_dict and send to cpu
+                    most_likely_generation = most_likely_generation.to('cpu')
 
                     sequence_dict['generated_texts'] = generated_texts
                     wandb.log({'generated_texts': str(generated_texts)})
@@ -321,7 +321,8 @@ def get_generations(model, dataloader, number_of_generations, sequences = [], te
 
                     sequences.append(sequence_dict)
                 del generations
-        except:
+        except Exception as ex:
+            print(ex)
             if os.path.exists(temp_generations_path):
                 os.remove(temp_generations_path)
             else:
@@ -347,7 +348,8 @@ else:
         with open(temp_generations_path, 'rb') as infile:
             sequences = pickle.load(infile)
         last_index = len(sequences)
-        questions = encode_and_format_dataset(train_dataset[last_index:])
+        train_subset = train_dataset.select(range(last_index, len(train_dataset))) 
+        questions = encode_and_format_dataset(train_subset)
         dataloader = torch.utils.data.DataLoader(questions, batch_size=1)
         sequences = get_generations(model, dataloader, args.num_generations_per_prompt, sequences, temp_generations_path)
     else:
@@ -1057,6 +1059,7 @@ for run_id in run_ids_to_analyze:
     result_dict['model_name'] = args.model
     result_dict['run_name'] = run_name
 
+    wandb.init()
     wandb.log(result_dict)
 
     overall_result_dict[run_id] = result_dict
