@@ -8,6 +8,7 @@ import csv
 import config
 import datasets
 import evaluate
+import accelerate
 import numpy as np
 import torch
 import torch.nn as nn
@@ -181,6 +182,8 @@ os.environ["HF_DATASETS_CACHE"] = config.hf_datasets_cache
 model = AutoModelForCausalLM.from_pretrained(f"facebook/{args.model}",
                                              torch_dtype=dtype,
                                              cache_dir=config.hf_cache_dir).to(device)
+
+accelerate.dispatch_model(model, device_map=config.device_map)
 
 tokenizer = AutoTokenizer.from_pretrained(f"facebook/{args.model}", use_fast=False, cache_dir=config.hf_cache_dir)
 
