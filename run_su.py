@@ -180,15 +180,17 @@ print("INFO: ------loading model------")
 
 os.environ["HF_DATASETS_CACHE"] = config.hf_datasets_cache
 
+os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
+
 model = AutoModelForCausalLM.from_pretrained(f"facebook/{args.model}",
                                              torch_dtype=dtype,
                                              cache_dir=config.hf_cache_dir).cuda()
 
 accelerator = Accelerator()
-
-accelerate.dispatch_model(model, device_map=config.device_map)
-
 device = accelerator.device
+
+# accelerate.dispatch_model(model, device_map=config.device_map)
+
 
 tokenizer = AutoTokenizer.from_pretrained(f"facebook/{args.model}", use_fast=False, cache_dir=config.hf_cache_dir)
 
@@ -359,10 +361,12 @@ else:
         train_subset = train_dataset.select(range(last_index, len(train_dataset))) 
         questions = encode_and_format_dataset(train_subset)
         dataloader = torch.utils.data.DataLoader(questions, batch_size=1)
+        model, dataloader = accelerate.prepare(model, dataloader)
         sequences = get_generations(model, dataloader, args.num_generations_per_prompt, sequences, temp_generations_path)
     else:
         questions = encode_and_format_dataset(train_dataset)
         dataloader = torch.utils.data.DataLoader(questions, batch_size=1)
+        model, dataloader = accelerate.prepare(model, dataloader)
         sequences = get_generations(model, dataloader, args.num_generations_per_prompt)
     pathlib.Path(f'{config.output_dir}/sequences/' + run_name).mkdir(parents=True, exist_ok=True)
     with open(f'{config.output_dir}/sequences/{run_name}/{args.model}_generations.pkl', 'wb') as outfile:
