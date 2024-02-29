@@ -27,10 +27,10 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--type_of_question', type=str)
 parser.add_argument('--num_generations_per_prompt', type=int, default=5)
 parser.add_argument('--fraction_of_data_to_use', type=float, default=0.9)
-parser.add_argument('--model', type=str, default='opt-2.7b')
 parser.add_argument('--run_id', type=str, default='run_1')
 parser.add_argument('--temperature', type=float, default='0.5')
 parser.add_argument('--num_beams', type=int, default='5')
+parser.add_argument('--model', type=str, default='opt-2.7b')
 parser.add_argument('--decoding_method', type=str, default='beam_search')
 parser.add_argument('--top_p', type=float, default=1.0)
 parser.add_argument('--device', type=str, default="cuda:2")
@@ -187,6 +187,7 @@ model = AutoModelForCausalLM.from_pretrained(f"facebook/{args.model}",
                                              cache_dir=config.hf_cache_dir).cuda()
 
 accelerator = Accelerator()
+accelerate.dispatch_model(model, device_map=config.device_map)
 device = accelerator.device
 
 # accelerate.dispatch_model(model, device_map=config.device_map)
@@ -463,7 +464,7 @@ else:
         for index, answer in enumerate(unique_generated_texts):
             semantic_set_ids[answer] = index
 
-        print('Number of unique answers:', len(unique_generated_texts))
+        #print('Number of unique answers:', len(unique_generated_texts))
 
         if len(unique_generated_texts) > 1:
 
@@ -489,7 +490,7 @@ else:
                     reverse_predicted_label = torch.argmax(reverse_prediction, dim=1)
 
                     deberta_prediction = 1
-                    print(qa_1, qa_2, predicted_label, reverse_predicted_label)
+                    # print(qa_1, qa_2, predicted_label, reverse_predicted_label)
                     if 0 in predicted_label or 0 in reverse_predicted_label:
                         has_semantically_different_answers = True
                         deberta_prediction = 0
