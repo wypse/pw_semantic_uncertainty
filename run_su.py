@@ -184,13 +184,13 @@ os.environ["HF_DATASETS_CACHE"] = config.hf_datasets_cache
 
 model = AutoModelForCausalLM.from_pretrained(f"facebook/{args.model}",
                                              torch_dtype=dtype,
+                                             device_map="auto",
                                              cache_dir=config.hf_cache_dir).cuda()
 
 accelerator = Accelerator()
 #accelerate.dispatch_model(model, device_map=config.device_map)
 device = accelerator.device
 
-# accelerate.dispatch_model(model, device_map=config.device_map)
 
 
 tokenizer = AutoTokenizer.from_pretrained(f"facebook/{args.model}", use_fast=False, cache_dir=config.hf_cache_dir)
