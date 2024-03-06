@@ -187,7 +187,7 @@ model = AutoModelForCausalLM.from_pretrained(f"facebook/{args.model}",
                                              cache_dir=config.hf_cache_dir).cuda()
 
 accelerator = Accelerator()
-accelerate.dispatch_model(model, device_map=config.device_map)
+#accelerate.dispatch_model(model, device_map=config.device_map)
 device = accelerator.device
 
 # accelerate.dispatch_model(model, device_map=config.device_map)
