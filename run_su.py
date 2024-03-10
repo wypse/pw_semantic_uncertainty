@@ -537,362 +537,380 @@ else:
     
 print("INFO:------calculating p(true)------")
 
-with open(f'{config.output_dir}/{run_name}/{args.model}_generations.pkl', 'rb') as infile:
-    sequences_for_few_shot_prompt = pickle.load(infile)
+if os.path.exists(f'{config.output_dir}/{run_name}/{args.model}_p_true_aurocs.pkl'):
+    print("INFO:------loading p_true_aurocs------")
+    with open(f'{config.output_dir}/{run_name}/{args.model}_p_true_aurocs.pkl', 'rb') as infile:
+        p_true_auroc = pickle.load(infile)
+else:
+
+    with open(f'{config.output_dir}/{run_name}/{args.model}_generations.pkl', 'rb') as infile:
+        sequences_for_few_shot_prompt = pickle.load(infile)
 
 
-# Build few shot prompt
+    # Build few shot prompt
 
-subset_of_sequences_for_few_shot_prompt = sequences_for_few_shot_prompt[-10:]
-number_of_few_shot_samples = 5
+    subset_of_sequences_for_few_shot_prompt = sequences_for_few_shot_prompt[-10:]
+    number_of_few_shot_samples = 5
 
-prompt_template = 'Question: {} \n Here are some ideas that were brainstormed:{}\n Possible answer:{}\n Is the possible answer:\n (A) True\n (B) False\n The possible answer is:'
-few_shot_promopt = ''
-for sequence in subset_of_sequences_for_few_shot_prompt:
-    question = sequence['question']
-    question = question.split('Question: ')[-1].split('Answer: ')[0]
-    prompt = sequence['prompt']
-    generated_texts = '\n'.join(sequence['cleaned_generated_texts'][:number_of_few_shot_samples])
-
-    most_likely_answer = sequence['most_likely_generation']
-    correct = ' True' if sequence['rougeL_to_target'] > 0.3 else ' False'
-    few_shot_promopt += prompt_template.format(question, generated_texts, most_likely_answer) + correct + '\n'
-
-# Build prompt for question
-labels_across_datasets = []
-p_trues_across_datasets = []
-
-n_samples_to_use = 2000
-
-with torch.no_grad():
-
-    aurocs = []
-    p_trues = []
-    corrects = []
-    for sequence in tqdm(sequences_for_few_shot_prompt[:n_samples_to_use]):
-
+    prompt_template = 'Question: {} \n Here are some ideas that were brainstormed:{}\n Possible answer:{}\n Is the possible answer:\n (A) True\n (B) False\n The possible answer is:'
+    few_shot_promopt = ''
+    for sequence in subset_of_sequences_for_few_shot_prompt:
         question = sequence['question']
-        if 'Question: ' in question:
-            question = question.split('Question: ')[-1].split('Answer: ')[0]
-        else:
-            question = question.split('Q: ')[-1].split('A: ')[0]
-
+        question = question.split('Question: ')[-1].split('Answer: ')[0]
+        prompt = sequence['prompt']
         generated_texts = '\n'.join(sequence['cleaned_generated_texts'][:number_of_few_shot_samples])
+
         most_likely_answer = sequence['most_likely_generation']
-        correct = 1.0 if sequence['rougeL_to_target'] > 0.3 else 0.0
-        base_prompt = prompt_template.format(question, generated_texts, most_likely_answer)
-        prompt_true = few_shot_promopt + prompt_template.format(question, generated_texts, most_likely_answer) + ' True'
+        correct = ' True' if sequence['rougeL_to_target'] > 0.3 else ' False'
+        few_shot_promopt += prompt_template.format(question, generated_texts, most_likely_answer) + correct + '\n'
 
-        # This computation of the negative log likelihoods follows this tutorial: https://huggingface.co/docs/transformers/perplexity
-        tokenized_base_prompt = generation_tokenizer(base_prompt)['input_ids']
-        tokenized_prompt_true = torch.tensor(generation_tokenizer(prompt_true)['input_ids'], device=device)
+    # Build prompt for question
+    labels_across_datasets = []
+    p_trues_across_datasets = []
 
-        target_ids_true = tokenized_prompt_true.clone()
-        target_ids_true[:len(tokenized_base_prompt)] = -100
-
-        model_output_true = model(torch.reshape(tokenized_prompt_true, (1, -1)), labels=target_ids_true)
-        loss_true = model_output_true.loss
-
-        p_trues.append(loss_true.item())
-        corrects.append(correct)
-
-        labels_across_datasets += corrects
-        p_trues_across_datasets += p_trues
-
-    p_true_auroc = sklearn.metrics.roc_auc_score(1 - torch.tensor(corrects), torch.tensor(p_trues))
-
-    # Store p_true aurocs in a pickle file
-    with open(f'{config.output_dir}/{run_name}/{args.model}_p_true_aurocs.pkl', 'wb') as outfile:
-        pickle.dump(p_true_auroc, outfile)
-
-### likelihoods
-        
-print("INFO:-----calculating likelihoods------")
-
-
-with open(f'{config.output_dir}/{run_name}/{args.model}_generations.pkl', 'rb') as infile:
-    sequences = pickle.load(infile)
-
-with open(f'{config.output_dir}/{run_name}/{args.model}_generations_similarities.pkl', 'rb') as infile:
-    similarities_dict = pickle.load(infile)
-
-
-def get_neg_loglikelihoods(model, sequences):
+    n_samples_to_use = 2000
 
     with torch.no_grad():
-        result = []
-        for sample in sequences:
-            result_dict = {}
-            prompt = sample['prompt']
-            if 'cleaned_generations' in sample:
-                generations = sample['cleaned_generations'].to(device)
+
+        aurocs = []
+        p_trues = []
+        corrects = []
+        for sequence in tqdm(sequences_for_few_shot_prompt[:n_samples_to_use]):
+
+            question = sequence['question']
+            if 'Question: ' in question:
+                question = question.split('Question: ')[-1].split('Answer: ')[0]
             else:
-                generations = sample['generations'].to(device)
-            id_ = sample['id']
+                question = question.split('Q: ')[-1].split('A: ')[0]
 
-            average_neg_log_likelihoods = torch.zeros((generations.shape[0],))
-            average_unconditioned_neg_log_likelihoods = torch.zeros((generations.shape[0],))
-            neg_log_likelihoods = torch.zeros((generations.shape[0],))
-            neg_unconditioned_log_likelihoods = torch.zeros((generations.shape[0],))
-            pointwise_mutual_information = torch.zeros((generations.shape[0],))
-            sequence_embeddings = []
+            generated_texts = '\n'.join(sequence['cleaned_generated_texts'][:number_of_few_shot_samples])
+            most_likely_answer = sequence['most_likely_generation']
+            correct = 1.0 if sequence['rougeL_to_target'] > 0.3 else 0.0
+            base_prompt = prompt_template.format(question, generated_texts, most_likely_answer)
+            prompt_true = few_shot_promopt + prompt_template.format(question, generated_texts, most_likely_answer) + ' True'
 
-            for generation_index in range(generations.shape[0]):
-                prompt = prompt[prompt != tokenizer.pad_token_id]
-                generation = generations[generation_index][generations[generation_index] != tokenizer.pad_token_id]
+            # This computation of the negative log likelihoods follows this tutorial: https://huggingface.co/docs/transformers/perplexity
+            tokenized_base_prompt = generation_tokenizer(base_prompt)['input_ids']
+            tokenized_prompt_true = torch.tensor(generation_tokenizer(prompt_true)['input_ids'], device=device)
 
-                # This computation of the negative log likelihoods follows this tutorial: https://huggingface.co/docs/transformers/perplexity
-                target_ids = generation.clone()
+            target_ids_true = tokenized_prompt_true.clone()
+            target_ids_true[:len(tokenized_base_prompt)] = -100
+
+            model_output_true = model(torch.reshape(tokenized_prompt_true, (1, -1)), labels=target_ids_true)
+            loss_true = model_output_true.loss
+
+            p_trues.append(loss_true.item())
+            corrects.append(correct)
+
+            labels_across_datasets += corrects
+            p_trues_across_datasets += p_trues
+
+        p_true_auroc = sklearn.metrics.roc_auc_score(1 - torch.tensor(corrects), torch.tensor(p_trues))
+
+        # Store p_true aurocs in a pickle file
+        with open(f'{config.output_dir}/{run_name}/{args.model}_p_true_aurocs.pkl', 'wb') as outfile:
+            pickle.dump(p_true_auroc, outfile)
+
+### likelihoods
+
+if os.path.exists(f'{config.output_dir}/{run_name}/{args.model}_generations_{args.model}_likelihoods.pkl'):
+    print("INFO:-----loading likelihoods------")
+    with open(f'{config.output_dir}/{run_name}/{args.model}_generations_{args.model}_likelihoods.pkl', 'rb') as infile:
+        likelihoods = pickle.load(infile)
+else:
+
+    print("INFO:-----calculating likelihoods------")
+
+
+    with open(f'{config.output_dir}/{run_name}/{args.model}_generations.pkl', 'rb') as infile:
+        sequences = pickle.load(infile)
+
+    with open(f'{config.output_dir}/{run_name}/{args.model}_generations_similarities.pkl', 'rb') as infile:
+        similarities_dict = pickle.load(infile)
+
+
+    def get_neg_loglikelihoods(model, sequences):
+
+        with torch.no_grad():
+            result = []
+            for sample in sequences:
+                result_dict = {}
+                prompt = sample['prompt']
+                if 'cleaned_generations' in sample:
+                    generations = sample['cleaned_generations'].to(device)
+                else:
+                    generations = sample['generations'].to(device)
+                id_ = sample['id']
+
+                average_neg_log_likelihoods = torch.zeros((generations.shape[0],))
+                average_unconditioned_neg_log_likelihoods = torch.zeros((generations.shape[0],))
+                neg_log_likelihoods = torch.zeros((generations.shape[0],))
+                neg_unconditioned_log_likelihoods = torch.zeros((generations.shape[0],))
+                pointwise_mutual_information = torch.zeros((generations.shape[0],))
+                sequence_embeddings = []
+
+                for generation_index in range(generations.shape[0]):
+                    prompt = prompt[prompt != tokenizer.pad_token_id]
+                    generation = generations[generation_index][generations[generation_index] != tokenizer.pad_token_id]
+
+                    # This computation of the negative log likelihoods follows this tutorial: https://huggingface.co/docs/transformers/perplexity
+                    target_ids = generation.clone()
+                    target_ids[:len(prompt)] = -100
+                    model_output = model(torch.reshape(generation, (1, -1)), labels=target_ids, output_hidden_states=True)
+                    generation_only = generation.clone()[(len(prompt) - 1):]
+                    unconditioned_model_output = model(torch.reshape(generation_only, (1, -1)),
+                                                    labels=generation_only,
+                                                    output_hidden_states=True)
+                    hidden_states = model_output['hidden_states']
+                    average_neg_log_likelihood = model_output['loss']
+
+                    average_unconditioned_neg_log_likelihood = unconditioned_model_output['loss']
+                    average_neg_log_likelihoods[generation_index] = average_neg_log_likelihood
+                    average_unconditioned_neg_log_likelihoods[generation_index] = average_unconditioned_neg_log_likelihood
+                    neg_log_likelihoods[generation_index] = average_neg_log_likelihood * (len(generation) - len(prompt))
+                    neg_unconditioned_log_likelihoods[generation_index] = average_unconditioned_neg_log_likelihood * (
+                        len(generation) - len(prompt))
+                    pointwise_mutual_information[generation_index] = -neg_log_likelihoods[
+                        generation_index] + neg_unconditioned_log_likelihoods[generation_index]
+
+                    average_of_last_layer_token_embeddings = torch.mean(hidden_states[-1], dim=1)
+                    sequence_embeddings.append(average_of_last_layer_token_embeddings)
+
+                most_likely_generation = sample['most_likely_generation_ids'].to(device)
+                target_ids = most_likely_generation.clone()
                 target_ids[:len(prompt)] = -100
-                model_output = model(torch.reshape(generation, (1, -1)), labels=target_ids, output_hidden_states=True)
-                generation_only = generation.clone()[(len(prompt) - 1):]
-                unconditioned_model_output = model(torch.reshape(generation_only, (1, -1)),
-                                                   labels=generation_only,
-                                                   output_hidden_states=True)
+                model_output = model(torch.reshape(most_likely_generation, (1, -1)),
+                                    labels=target_ids,
+                                    output_hidden_states=True)
                 hidden_states = model_output['hidden_states']
-                average_neg_log_likelihood = model_output['loss']
+                average_neg_log_likelihood_of_most_likely_gen = model_output['loss']
+                most_likely_generation_embedding = torch.mean(hidden_states[-1], dim=1)
 
-                average_unconditioned_neg_log_likelihood = unconditioned_model_output['loss']
-                average_neg_log_likelihoods[generation_index] = average_neg_log_likelihood
-                average_unconditioned_neg_log_likelihoods[generation_index] = average_unconditioned_neg_log_likelihood
-                neg_log_likelihoods[generation_index] = average_neg_log_likelihood * (len(generation) - len(prompt))
-                neg_unconditioned_log_likelihoods[generation_index] = average_unconditioned_neg_log_likelihood * (
-                    len(generation) - len(prompt))
-                pointwise_mutual_information[generation_index] = -neg_log_likelihoods[
-                    generation_index] + neg_unconditioned_log_likelihoods[generation_index]
+                second_most_likely_generation = sample['second_most_likely_generation_ids'].to(device)
+                target_ids = second_most_likely_generation.clone()
+                target_ids[:len(prompt)] = -100
+                model_output = model(torch.reshape(second_most_likely_generation, (1, -1)),
+                                    labels=target_ids,
+                                    output_hidden_states=True)
+                hidden_states = model_output['hidden_states']
+                average_neg_log_likelihood_of_second_most_likely_gen = model_output['loss']
+                second_most_likely_generation_embedding = torch.mean(hidden_states[-1], dim=1)
 
-                average_of_last_layer_token_embeddings = torch.mean(hidden_states[-1], dim=1)
-                sequence_embeddings.append(average_of_last_layer_token_embeddings)
+                neg_log_likelihood_of_most_likely_gen = average_neg_log_likelihood_of_most_likely_gen * (
+                    len(most_likely_generation) - len(prompt))
 
-            most_likely_generation = sample['most_likely_generation_ids'].to(device)
-            target_ids = most_likely_generation.clone()
-            target_ids[:len(prompt)] = -100
-            model_output = model(torch.reshape(most_likely_generation, (1, -1)),
-                                 labels=target_ids,
-                                 output_hidden_states=True)
-            hidden_states = model_output['hidden_states']
-            average_neg_log_likelihood_of_most_likely_gen = model_output['loss']
-            most_likely_generation_embedding = torch.mean(hidden_states[-1], dim=1)
+                sequence_embeddings = torch.stack(sequence_embeddings)
+                result_dict['prompt'] = prompt
+                result_dict['generations'] = generations
+                result_dict['average_neg_log_likelihoods'] = average_neg_log_likelihoods
+                result_dict['neg_log_likelihoods'] = neg_log_likelihoods
+                result_dict['sequence_embeddings'] = most_likely_generation_embedding
+                result_dict['most_likely_sequence_embedding'] = most_likely_generation
+                result_dict['average_unconditioned_neg_log_likelihoods'] = average_unconditioned_neg_log_likelihoods
+                result_dict['neg_unconditioned_log_likelihoods'] = neg_unconditioned_log_likelihoods
+                result_dict['pointwise_mutual_information'] = pointwise_mutual_information
+                result_dict['average_neg_log_likelihood_of_most_likely_gen'] = average_neg_log_likelihood_of_most_likely_gen
+                result_dict[
+                    'average_neg_log_likelihood_of_second_most_likely_gen'] = average_neg_log_likelihood_of_second_most_likely_gen
+                result_dict['neg_log_likelihood_of_most_likely_gen'] = neg_log_likelihood_of_most_likely_gen
+                result_dict['semantic_set_ids'] = torch.tensor(similarities_dict[id_[0]]['semantic_set_ids'], device=device)
+                result_dict['id'] = id_
+                result.append(result_dict)
 
-            second_most_likely_generation = sample['second_most_likely_generation_ids'].to(device)
-            target_ids = second_most_likely_generation.clone()
-            target_ids[:len(prompt)] = -100
-            model_output = model(torch.reshape(second_most_likely_generation, (1, -1)),
-                                 labels=target_ids,
-                                 output_hidden_states=True)
-            hidden_states = model_output['hidden_states']
-            average_neg_log_likelihood_of_second_most_likely_gen = model_output['loss']
-            second_most_likely_generation_embedding = torch.mean(hidden_states[-1], dim=1)
-
-            neg_log_likelihood_of_most_likely_gen = average_neg_log_likelihood_of_most_likely_gen * (
-                len(most_likely_generation) - len(prompt))
-
-            sequence_embeddings = torch.stack(sequence_embeddings)
-            result_dict['prompt'] = prompt
-            result_dict['generations'] = generations
-            result_dict['average_neg_log_likelihoods'] = average_neg_log_likelihoods
-            result_dict['neg_log_likelihoods'] = neg_log_likelihoods
-            result_dict['sequence_embeddings'] = most_likely_generation_embedding
-            result_dict['most_likely_sequence_embedding'] = most_likely_generation
-            result_dict['average_unconditioned_neg_log_likelihoods'] = average_unconditioned_neg_log_likelihoods
-            result_dict['neg_unconditioned_log_likelihoods'] = neg_unconditioned_log_likelihoods
-            result_dict['pointwise_mutual_information'] = pointwise_mutual_information
-            result_dict['average_neg_log_likelihood_of_most_likely_gen'] = average_neg_log_likelihood_of_most_likely_gen
-            result_dict[
-                'average_neg_log_likelihood_of_second_most_likely_gen'] = average_neg_log_likelihood_of_second_most_likely_gen
-            result_dict['neg_log_likelihood_of_most_likely_gen'] = neg_log_likelihood_of_most_likely_gen
-            result_dict['semantic_set_ids'] = torch.tensor(similarities_dict[id_[0]]['semantic_set_ids'], device=device)
-            result_dict['id'] = id_
-            result.append(result_dict)
-
-        return result
+            return result
 
 
-likelihoods = get_neg_loglikelihoods(model, sequences)
+    likelihoods = get_neg_loglikelihoods(model, sequences)
 
-with open(f'{config.output_dir}/{run_name}/{args.model}_generations_{args.model}_likelihoods.pkl',
-          'wb') as outfile:
-    pickle.dump(likelihoods, outfile)
+    with open(f'{config.output_dir}/{run_name}/{args.model}_generations_{args.model}_likelihoods.pkl',
+            'wb') as outfile:
+        pickle.dump(likelihoods, outfile)
 
 ### confidence measure
 
-print("INFO:-----calculating confidence measure------")
+if os.path.exists(f'{config.output_dir}/{run_name}/aggregated_likelihoods_{args.model}_generations.pkl'):
+    print("INFO:-----loading confidence measure------")
+    with open(f'{config.output_dir}/{run_name}/aggregated_likelihoods_{args.model}_generations.pkl', 'rb') as infile:
+        overall_results = pickle.load(infile)
+else:
 
-llh_shift = torch.tensor(5.0)
+    print("INFO:-----calculating confidence measure------")
 
-
-def get_overall_log_likelihoods(list_of_results):
-    """Compute log likelihood of all generations under their given context.
-    
-    list_of_results: list of dictionaries with keys:
-    
-    returns: dictionary with keys: 'neg_log_likelihoods', 'average_neg_log_likelihoods'
-             that contains tensors of shape (num_models, num_generations, num_samples_per_generation)
-    """
-
-    result_dict = {}
-
-    list_of_keys = ['neg_log_likelihoods', 'average_neg_log_likelihoods', 'sequence_embeddings',\
-                    'pointwise_mutual_information', 'average_neg_log_likelihood_of_most_likely_gen',\
-                    'neg_log_likelihood_of_most_likely_gen', 'semantic_set_ids']
-
-    for key in list_of_keys:
-        list_of_ids = []
-        overall_results = []
-        for model_size, result in list_of_results:
-            results_per_model = []
-            for sample in result:
-                average_neg_log_likelihoods = sample[key]
-                list_of_ids.append(sample['id'][0])
-                results_per_model.append(average_neg_log_likelihoods)
-
-            results_per_model = torch.stack(results_per_model)
-
-            overall_results.append(results_per_model)
-
-        if key != 'sequence_embeddings':
-            overall_results = torch.stack(overall_results)
-
-        result_dict[key] = overall_results
-
-    result_dict['ids'] = list_of_ids
-    return result_dict
+    llh_shift = torch.tensor(5.0)
 
 
-def get_mutual_information(log_likelihoods):
-    """Compute confidence measure for a given set of likelihoods"""
+    def get_overall_log_likelihoods(list_of_results):
+        """Compute log likelihood of all generations under their given context.
+        
+        list_of_results: list of dictionaries with keys:
+        
+        returns: dictionary with keys: 'neg_log_likelihoods', 'average_neg_log_likelihoods'
+                that contains tensors of shape (num_models, num_generations, num_samples_per_generation)
+        """
 
-    mean_across_models = torch.logsumexp(log_likelihoods, dim=0) - torch.log(torch.tensor(log_likelihoods.shape[0]))
-    tiled_mean = mean_across_models.tile(log_likelihoods.shape[0], 1, 1)
-    diff_term = torch.exp(log_likelihoods) * log_likelihoods - torch.exp(tiled_mean) * tiled_mean
-    f_j = torch.div(torch.sum(diff_term, dim=0), diff_term.shape[0])
-    mutual_information = torch.div(torch.sum(torch.div(f_j, mean_across_models), dim=1), f_j.shape[-1])
+        result_dict = {}
 
-    return mutual_information
+        list_of_keys = ['neg_log_likelihoods', 'average_neg_log_likelihoods', 'sequence_embeddings',\
+                        'pointwise_mutual_information', 'average_neg_log_likelihood_of_most_likely_gen',\
+                        'neg_log_likelihood_of_most_likely_gen', 'semantic_set_ids']
 
+        for key in list_of_keys:
+            list_of_ids = []
+            overall_results = []
+            for model_size, result in list_of_results:
+                results_per_model = []
+                for sample in result:
+                    average_neg_log_likelihoods = sample[key]
+                    list_of_ids.append(sample['id'][0])
+                    results_per_model.append(average_neg_log_likelihoods)
 
-def get_log_likelihood_variance(neg_log_likelihoods):
-    """Compute log likelihood variance of approximate posterior predictive"""
-    mean_across_models = torch.mean(neg_log_likelihoods, dim=0)
-    variance_of_neg_log_likelihoods = torch.var(mean_across_models, dim=1)
+                results_per_model = torch.stack(results_per_model)
 
-    return variance_of_neg_log_likelihoods
+                overall_results.append(results_per_model)
 
+            if key != 'sequence_embeddings':
+                overall_results = torch.stack(overall_results)
 
-def get_log_likelihood_mean(neg_log_likelihoods):
-    """Compute softmax variance of approximate posterior predictive"""
-    mean_across_models = torch.mean(neg_log_likelihoods, dim=0)
-    mean_of_neg_log_likelihoods = torch.mean(mean_across_models, dim=1)
+            result_dict[key] = overall_results
 
-    return mean_of_neg_log_likelihoods
-
-
-def get_mean_of_poinwise_mutual_information(pointwise_mutual_information):
-    """Compute mean of pointwise mutual information"""
-    mean_across_models = torch.mean(pointwise_mutual_information, dim=0)
-    return torch.mean(mean_across_models, dim=1)
-
-
-def get_predictive_entropy(log_likelihoods):
-    """Compute predictive entropy of approximate posterior predictive"""
-    mean_across_models = torch.logsumexp(log_likelihoods, dim=0) - torch.log(torch.tensor(log_likelihoods.shape[0]))
-    entropy = -torch.sum(mean_across_models, dim=1) / torch.tensor(mean_across_models.shape[1])
-    return entropy
+        result_dict['ids'] = list_of_ids
+        return result_dict
 
 
-def get_predictive_entropy_over_concepts(log_likelihoods, semantic_set_ids):
-    """Compute the semantic entropy"""
-    mean_across_models = torch.logsumexp(log_likelihoods, dim=0) - torch.log(torch.tensor(log_likelihoods.shape[0]))
-    # This is ok because all the models have the same semantic set ids
-    semantic_set_ids = semantic_set_ids.to('cpu')
-    semantic_set_ids = semantic_set_ids[0]
-    entropies = []
-    for row_index in range(mean_across_models.shape[0]):
-        aggregated_likelihoods = []
-        row = mean_across_models[row_index]
-        semantic_set_ids_row = semantic_set_ids[row_index]
-        for semantic_set_id in torch.unique(semantic_set_ids_row):
-            aggregated_likelihoods.append(torch.logsumexp(row[semantic_set_ids_row == semantic_set_id], dim=0))
-        aggregated_likelihoods = torch.tensor(aggregated_likelihoods) - llh_shift
-        entropy = - torch.sum(aggregated_likelihoods, dim=0) / torch.tensor(aggregated_likelihoods.shape[0])
-        entropies.append(entropy)
+    def get_mutual_information(log_likelihoods):
+        """Compute confidence measure for a given set of likelihoods"""
 
-    return torch.tensor(entropies)
+        mean_across_models = torch.logsumexp(log_likelihoods, dim=0) - torch.log(torch.tensor(log_likelihoods.shape[0]))
+        tiled_mean = mean_across_models.tile(log_likelihoods.shape[0], 1, 1)
+        diff_term = torch.exp(log_likelihoods) * log_likelihoods - torch.exp(tiled_mean) * tiled_mean
+        f_j = torch.div(torch.sum(diff_term, dim=0), diff_term.shape[0])
+        mutual_information = torch.div(torch.sum(torch.div(f_j, mean_across_models), dim=1), f_j.shape[-1])
+
+        return mutual_information
 
 
-def get_margin_probability_uncertainty_measure(log_likelihoods):
-    """Compute margin probability uncertainty measure"""
-    mean_across_models = torch.logsumexp(log_likelihoods, dim=0) - torch.log(torch.tensor(log_likelihoods.shape[0]))
-    topk_likelihoods, indices = torch.topk(mean_across_models, 2, dim=1, sorted=True)
-    margin_probabilities = np.exp(topk_likelihoods[:, 0]) - np.exp(topk_likelihoods[:, 1])
+    def get_log_likelihood_variance(neg_log_likelihoods):
+        """Compute log likelihood variance of approximate posterior predictive"""
+        mean_across_models = torch.mean(neg_log_likelihoods, dim=0)
+        variance_of_neg_log_likelihoods = torch.var(mean_across_models, dim=1)
 
-    return margin_probabilities
-
-
-list_of_results = []
-
-with open(f'{config.output_dir}/{run_name}/{args.model}_generations_{args.model}_likelihoods.pkl',
-          'rb') as infile:
-    sequences = pickle.load(infile)
-    list_of_results.append((args.model, sequences))
-
-overall_results = get_overall_log_likelihoods(list_of_results)
-mutual_information = get_mutual_information(-overall_results['neg_log_likelihoods'])
-predictive_entropy = get_predictive_entropy(-overall_results['neg_log_likelihoods'])
-predictive_entropy_over_concepts = get_predictive_entropy_over_concepts(-overall_results['average_neg_log_likelihoods'],
-                                                                        overall_results['semantic_set_ids'])
-unnormalised_entropy_over_concepts = get_predictive_entropy_over_concepts(-overall_results['neg_log_likelihoods'],
-                                                                          overall_results['semantic_set_ids'])
-
-margin_measures = get_margin_probability_uncertainty_measure(-overall_results['average_neg_log_likelihoods'])
-unnormalised_margin_measures = get_margin_probability_uncertainty_measure(-overall_results['neg_log_likelihoods'])
+        return variance_of_neg_log_likelihoods
 
 
-def get_number_of_unique_elements_per_row(tensor):
-    assert len(tensor.shape) == 2
-    return torch.count_nonzero(torch.sum(torch.nn.functional.one_hot(tensor), dim=1), dim=1)
+    def get_log_likelihood_mean(neg_log_likelihoods):
+        """Compute softmax variance of approximate posterior predictive"""
+        mean_across_models = torch.mean(neg_log_likelihoods, dim=0)
+        mean_of_neg_log_likelihoods = torch.mean(mean_across_models, dim=1)
+
+        return mean_of_neg_log_likelihoods
 
 
-number_of_semantic_sets = get_number_of_unique_elements_per_row(overall_results['semantic_set_ids'][0])
-average_predictive_entropy = get_predictive_entropy(-overall_results['average_neg_log_likelihoods'])
-average_predictive_entropy_on_subsets = []
-predictive_entropy_on_subsets = []
-semantic_predictive_entropy_on_subsets = []
-num_predictions = overall_results['average_neg_log_likelihoods'].shape[-1]
-number_of_semantic_sets_on_subsets = []
-for i in range(1, num_predictions + 1):
-    offset = num_predictions * (i / 100)
-    average_predictive_entropy_on_subsets.append(
-        get_predictive_entropy(-overall_results['average_neg_log_likelihoods'][:, :, :int(i)]))
-    predictive_entropy_on_subsets.append(get_predictive_entropy(-overall_results['neg_log_likelihoods'][:, :, :int(i)]))
-    semantic_predictive_entropy_on_subsets.append(
-        get_predictive_entropy_over_concepts(-overall_results['average_neg_log_likelihoods'][:, :, :int(i)],
-                                             overall_results['semantic_set_ids'][:, :, :int(i)]))
-    number_of_semantic_sets_on_subsets.append(
-        get_number_of_unique_elements_per_row(overall_results['semantic_set_ids'][0][:, :i]))
+    def get_mean_of_poinwise_mutual_information(pointwise_mutual_information):
+        """Compute mean of pointwise mutual information"""
+        mean_across_models = torch.mean(pointwise_mutual_information, dim=0)
+        return torch.mean(mean_across_models, dim=1)
 
-average_pointwise_mutual_information = get_mean_of_poinwise_mutual_information(
-    overall_results['pointwise_mutual_information'])
 
-overall_results['mutual_information'] = mutual_information
-overall_results['predictive_entropy'] = predictive_entropy
-overall_results['predictive_entropy_over_concepts'] = predictive_entropy_over_concepts
-overall_results['unnormalised_entropy_over_concepts'] = unnormalised_entropy_over_concepts
-overall_results['number_of_semantic_sets'] = number_of_semantic_sets
-overall_results['margin_measures'] = margin_measures
-overall_results['unnormalised_margin_measures'] = unnormalised_margin_measures
+    def get_predictive_entropy(log_likelihoods):
+        """Compute predictive entropy of approximate posterior predictive"""
+        mean_across_models = torch.logsumexp(log_likelihoods, dim=0) - torch.log(torch.tensor(log_likelihoods.shape[0]))
+        entropy = -torch.sum(mean_across_models, dim=1) / torch.tensor(mean_across_models.shape[1])
+        return entropy
 
-overall_results['average_predictive_entropy'] = average_predictive_entropy
-for i in range(len(average_predictive_entropy_on_subsets)):
-    overall_results[f'average_predictive_entropy_on_subset_{i + 1}'] = average_predictive_entropy_on_subsets[i]
-    overall_results[f'predictive_entropy_on_subset_{i + 1}'] = predictive_entropy_on_subsets[i]
-    overall_results[f'semantic_predictive_entropy_on_subset_{i + 1}'] = semantic_predictive_entropy_on_subsets[i]
-    overall_results[f'number_of_semantic_sets_on_subset_{i + 1}'] = number_of_semantic_sets_on_subsets[i]
-overall_results['average_pointwise_mutual_information'] = average_pointwise_mutual_information
 
-with open(f'{config.output_dir}/{run_name}/aggregated_likelihoods_{args.model}_generations.pkl',
-          'wb') as outfile:
-    pickle.dump(overall_results, outfile)
+    def get_predictive_entropy_over_concepts(log_likelihoods, semantic_set_ids):
+        """Compute the semantic entropy"""
+        mean_across_models = torch.logsumexp(log_likelihoods, dim=0) - torch.log(torch.tensor(log_likelihoods.shape[0]))
+        # This is ok because all the models have the same semantic set ids
+        semantic_set_ids = semantic_set_ids.to('cpu')
+        semantic_set_ids = semantic_set_ids[0]
+        entropies = []
+        for row_index in range(mean_across_models.shape[0]):
+            aggregated_likelihoods = []
+            row = mean_across_models[row_index]
+            semantic_set_ids_row = semantic_set_ids[row_index]
+            for semantic_set_id in torch.unique(semantic_set_ids_row):
+                aggregated_likelihoods.append(torch.logsumexp(row[semantic_set_ids_row == semantic_set_id], dim=0))
+            aggregated_likelihoods = torch.tensor(aggregated_likelihoods) - llh_shift
+            entropy = - torch.sum(aggregated_likelihoods, dim=0) / torch.tensor(aggregated_likelihoods.shape[0])
+            entropies.append(entropy)
+
+        return torch.tensor(entropies)
+
+
+    def get_margin_probability_uncertainty_measure(log_likelihoods):
+        """Compute margin probability uncertainty measure"""
+        mean_across_models = torch.logsumexp(log_likelihoods, dim=0) - torch.log(torch.tensor(log_likelihoods.shape[0]))
+        topk_likelihoods, indices = torch.topk(mean_across_models, 2, dim=1, sorted=True)
+        margin_probabilities = np.exp(topk_likelihoods[:, 0]) - np.exp(topk_likelihoods[:, 1])
+
+        return margin_probabilities
+
+
+    list_of_results = []
+
+    with open(f'{config.output_dir}/{run_name}/{args.model}_generations_{args.model}_likelihoods.pkl',
+            'rb') as infile:
+        sequences = pickle.load(infile)
+        list_of_results.append((args.model, sequences))
+
+    overall_results = get_overall_log_likelihoods(list_of_results)
+    mutual_information = get_mutual_information(-overall_results['neg_log_likelihoods'])
+    predictive_entropy = get_predictive_entropy(-overall_results['neg_log_likelihoods'])
+    predictive_entropy_over_concepts = get_predictive_entropy_over_concepts(-overall_results['average_neg_log_likelihoods'],
+                                                                            overall_results['semantic_set_ids'])
+    unnormalised_entropy_over_concepts = get_predictive_entropy_over_concepts(-overall_results['neg_log_likelihoods'],
+                                                                            overall_results['semantic_set_ids'])
+
+    margin_measures = get_margin_probability_uncertainty_measure(-overall_results['average_neg_log_likelihoods'])
+    unnormalised_margin_measures = get_margin_probability_uncertainty_measure(-overall_results['neg_log_likelihoods'])
+
+
+    def get_number_of_unique_elements_per_row(tensor):
+        assert len(tensor.shape) == 2
+        return torch.count_nonzero(torch.sum(torch.nn.functional.one_hot(tensor), dim=1), dim=1)
+
+
+    number_of_semantic_sets = get_number_of_unique_elements_per_row(overall_results['semantic_set_ids'][0])
+    average_predictive_entropy = get_predictive_entropy(-overall_results['average_neg_log_likelihoods'])
+    average_predictive_entropy_on_subsets = []
+    predictive_entropy_on_subsets = []
+    semantic_predictive_entropy_on_subsets = []
+    num_predictions = overall_results['average_neg_log_likelihoods'].shape[-1]
+    number_of_semantic_sets_on_subsets = []
+    for i in range(1, num_predictions + 1):
+        offset = num_predictions * (i / 100)
+        average_predictive_entropy_on_subsets.append(
+            get_predictive_entropy(-overall_results['average_neg_log_likelihoods'][:, :, :int(i)]))
+        predictive_entropy_on_subsets.append(get_predictive_entropy(-overall_results['neg_log_likelihoods'][:, :, :int(i)]))
+        semantic_predictive_entropy_on_subsets.append(
+            get_predictive_entropy_over_concepts(-overall_results['average_neg_log_likelihoods'][:, :, :int(i)],
+                                                overall_results['semantic_set_ids'][:, :, :int(i)]))
+        number_of_semantic_sets_on_subsets.append(
+            get_number_of_unique_elements_per_row(overall_results['semantic_set_ids'][0][:, :i]))
+
+    average_pointwise_mutual_information = get_mean_of_poinwise_mutual_information(
+        overall_results['pointwise_mutual_information'])
+
+    overall_results['mutual_information'] = mutual_information
+    overall_results['predictive_entropy'] = predictive_entropy
+    overall_results['predictive_entropy_over_concepts'] = predictive_entropy_over_concepts
+    overall_results['unnormalised_entropy_over_concepts'] = unnormalised_entropy_over_concepts
+    overall_results['number_of_semantic_sets'] = number_of_semantic_sets
+    overall_results['margin_measures'] = margin_measures
+    overall_results['unnormalised_margin_measures'] = unnormalised_margin_measures
+
+    overall_results['average_predictive_entropy'] = average_predictive_entropy
+    for i in range(len(average_predictive_entropy_on_subsets)):
+        overall_results[f'average_predictive_entropy_on_subset_{i + 1}'] = average_predictive_entropy_on_subsets[i]
+        overall_results[f'predictive_entropy_on_subset_{i + 1}'] = predictive_entropy_on_subsets[i]
+        overall_results[f'semantic_predictive_entropy_on_subset_{i + 1}'] = semantic_predictive_entropy_on_subsets[i]
+        overall_results[f'number_of_semantic_sets_on_subset_{i + 1}'] = number_of_semantic_sets_on_subsets[i]
+    overall_results['average_pointwise_mutual_information'] = average_pointwise_mutual_information
+
+    with open(f'{config.output_dir}/{run_name}/aggregated_likelihoods_{args.model}_generations.pkl',
+            'wb') as outfile:
+        pickle.dump(overall_results, outfile)
 
 # Evaluation
 
