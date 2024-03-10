@@ -175,17 +175,17 @@ if not os.path.exists(f'{config.data_dir}/coqa_dataset'):
 
     print("INFO: ------saved data to disk------")
 
+if not os.path.exists(f'{config.output_dir}/sequences/' + run_name):
+    print("INFO: ------loading model------")
 
-print("INFO: ------loading model------")
+    os.environ["HF_DATASETS_CACHE"] = config.hf_datasets_cache
 
-os.environ["HF_DATASETS_CACHE"] = config.hf_datasets_cache
+    #os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
 
-#os.environ["CUDA_VISIBLE_DEVICES"] = "2,3"
-
-model = AutoModelForCausalLM.from_pretrained(f"facebook/{args.model}",
-                                             torch_dtype=dtype,
-                                             device_map="auto",
-                                             cache_dir=config.hf_cache_dir)#.cuda()
+    model = AutoModelForCausalLM.from_pretrained(f"facebook/{args.model}",
+                                                torch_dtype=dtype,
+                                                device_map="auto",
+                                                cache_dir=config.hf_cache_dir)#.cuda()
 
 accelerator = Accelerator()
 #accelerate.dispatch_model(model, device_map=config.device_map)
