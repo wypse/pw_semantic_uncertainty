@@ -1009,7 +1009,7 @@ for run_id in run_ids_to_analyze:
     result_dict = {}
     result_dict['accuracy'] = result_df['correct'].mean()
 
-    wandb.log({result_dict: str(result_dict)})
+    wandb.log({'result_dict': str(result_dict)})
 
     # Compute the auroc for the length normalized predictive entropy
     ln_predictive_entropy_auroc = sklearn.metrics.roc_auc_score(1 - result_df['correct'],
