@@ -1010,11 +1010,11 @@ for run_id in run_ids_to_analyze:
     result_dict['accuracy'] = result_df['correct'].mean()
 
     #calculate the amount of Nan values in the result_df['correct'] and result_df['average_predictive_entropy'] including the indices
-    print("Length of correct reuslt_df: ", len(result_df['correct'])
+    print("Length of correct reuslt_df: ", len(result_df['correct']))
     print("Number of NaN values in correct df: ", result_df['correct'].isna().sum())
     print("Indices of NaN values in correct df: ", result_df['correct'][result_df['correct'].isna()].index)
 
-    print("Length of average_predictive_entropy reuslt_df: ", len(result_df['average_predictive_entropy'])
+    print("Length of average_predictive_entropy reuslt_df: ", len(result_df['average_predictive_entropy']))
     print("Number of NaN values in average_predictive_entropy df: ", result_df['average_predictive_entropy'].isna().sum())
     print("Indices of NaN values in average_predictive_entropy df: ", result_df['average_predictive_entropy'][result_df['average_predictive_entropy'].isna()].index)
 
