@@ -966,7 +966,6 @@ for run_id in run_ids_to_analyze:
 
         with open(f'{config.output_dir}/{run_name}/aggregated_likelihoods_{args.model}_generations.pkl', 'rb') as f:
             likelihoods = pickle.load(f)
-            print(likelihoods.keys())
 
             subset_keys = ['average_predictive_entropy_on_subset_' + str(i) for i in range(1, num_generations + 1)]
             subset_keys += ['predictive_entropy_on_subset_' + str(i) for i in range(1, num_generations + 1)]
@@ -1100,7 +1099,7 @@ for run_id in run_ids_to_analyze:
     result_dict['run_name'] = run_name
 
 
-    wandb.log({"result_dict": result_dict})
+    #wandb.log({"result_dict": result_dict})
 
     overall_result_dict[run_id] = result_dict
     sequence_embeddings_dict[run_id] = sequence_embeddings
