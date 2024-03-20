@@ -1099,7 +1099,8 @@ for run_id in run_ids_to_analyze:
     result_dict['model_name'] = args.model
     result_dict['run_name'] = run_name
 
-    wandb.log(result_dict)
+
+    wandb.log({"result_dict": result_dict})
 
     overall_result_dict[run_id] = result_dict
     sequence_embeddings_dict[run_id] = sequence_embeddings
