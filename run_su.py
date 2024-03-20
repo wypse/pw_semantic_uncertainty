@@ -1009,17 +1009,13 @@ for run_id in run_ids_to_analyze:
     result_dict = {}
     result_dict['accuracy'] = result_df['correct'].mean()
 
-    #calculate the amount of Nan values in the result_df['correct'] and result_df['average_predictive_entropy'] including the indices
-    print("Length of correct reuslt_df: ", len(result_df['correct']))
-    print("Number of NaN values in correct df: ", result_df['correct'].isna().sum())
-    print("Indices of NaN values in correct df: ", result_df['correct'][result_df['correct'].isna()].index)
+    correct_nans = result_df['correct'][result_df['correct'].isna()].index
+    avg_pred_entr_nans = result_df['average_predictive_entropy'][result_df['average_predictive_entropy'].isna()].index
 
-    print("Length of average_predictive_entropy reuslt_df: ", len(result_df['average_predictive_entropy']))
-    print("Number of NaN values in average_predictive_entropy df: ", result_df['average_predictive_entropy'].isna().sum())
-    print("Indices of NaN values in average_predictive_entropy df: ", result_df['average_predictive_entropy'][result_df['average_predictive_entropy'].isna()].index)
-
-    wandb.log({'correct_result_df': str(result_df['correct'])})
-    wandb.log({'average_predictive_entropy': str(result_df['average_predictive_entropy'])})
+    # combine the indices and drop them
+    indices_to_drop = list(set(correct_nans).union(set(avg_pred_entr_nans)))
+    result_df = result_df.drop(indices_to_drop)
+        
 
     # Compute the auroc for the length normalized predictive entropy
     ln_predictive_entropy_auroc = sklearn.metrics.roc_auc_score(1 - result_df['correct'],
