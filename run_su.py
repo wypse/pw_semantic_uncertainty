@@ -1015,7 +1015,7 @@ for run_id in run_ids_to_analyze:
     # combine the indices and drop them
     indices_to_drop = list(set(correct_nans).union(set(avg_pred_entr_nans)))
     result_df = result_df.drop(indices_to_drop)
-        
+
 
     # Compute the auroc for the length normalized predictive entropy
     ln_predictive_entropy_auroc = sklearn.metrics.roc_auc_score(1 - result_df['correct'],
@@ -1099,7 +1099,6 @@ for run_id in run_ids_to_analyze:
     result_dict['model_name'] = args.model
     result_dict['run_name'] = run_name
 
-    wandb.init()
     wandb.log(result_dict)
 
     overall_result_dict[run_id] = result_dict
