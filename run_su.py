@@ -341,6 +341,7 @@ def get_generations(model, dataloader, number_of_generations, sequences = [], te
 
             with open(temp_generations_path, 'wb') as outfile:
                     pickle.dump(sequences, outfile)
+            raise ex
 
     return sequences
 
